@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "test": "tsx --test $(find tests -name '*.test.ts' | tr '\\n' ' ')",
-    "start": "node --env-file=.env --import tsx src/index.ts"
+    "start": "node --import tsx src/index.ts"
   },
   "dependencies": {
     "node-cron": "^3.0.3"
