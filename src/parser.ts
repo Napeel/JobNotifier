@@ -6,8 +6,9 @@ import type { PostingRow, RepoConfig } from "./types.ts";
  * - Plain link: [Apply](<url>) or [Apply](url)
  */
 function extractUrl(cell: string): string {
-  // Shield badge format: [![...](badge)](URL)
-  const badgeMatch = cell.match(/\]\]\((https?:\/\/[^)]+)\)/);
+  // Shield badge format: [![...](badge-url)](URL)
+  // The outer link wraps an image: [![Alt](badge-url)](actual-url)
+  const badgeMatch = cell.match(/\]\(https?:\/\/[^)]+\)\]\((https?:\/\/[^)]+)\)/);
   if (badgeMatch) return badgeMatch[1];
 
   // Plain markdown link: [text](<url>) or [text](url)
