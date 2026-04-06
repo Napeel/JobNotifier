@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "node --env-file=.env --import tsx src/index.ts",
     "test": "tsx --test $(find tests -name '*.test.ts' | tr '\\n' ' ')",
-    "start": "node --import tsx src/index.ts"
+    "start": "node --env-file=.env --import tsx src/index.ts"
   },
   "dependencies": {
     "node-cron": "^3.0.3"
