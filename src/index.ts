@@ -25,6 +25,23 @@ async function saveState(state: State): Promise<void> {
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
+async function seedState(): Promise<void> {
+  console.log("Seeding state (no notifications will be sent)...");
+  const state = await loadState();
+
+  for (const repoConfig of REPOS) {
+    const repoKey = `${repoConfig.owner}/${repoConfig.repo}`;
+    console.log(`Fetching ${repoKey}...`);
+    const markdown = await fetchReadme(repoConfig);
+    const postings = parseReadme(markdown, repoConfig);
+    state[repoKey] = postings.map(hashPosting);
+    console.log(`  ${postings.length} postings hashed.`);
+  }
+
+  await saveState(state);
+  console.log("State seeded. Future runs will only notify NEW postings.");
+}
+
 async function pollOnce(): Promise<void> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -85,13 +102,19 @@ async function pollOnce(): Promise<void> {
 
 // --- Main ---
 
-const intervalMinutes = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
-console.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
+const isSeed = process.argv.includes("--seed");
 
-// Run immediately on start
-pollOnce();
+if (isSeed) {
+  seedState();
+} else {
+  const intervalMinutes = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
+  console.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
 
-// Then schedule
-cron.schedule(`*/${intervalMinutes} * * * *`, () => {
+  // Run immediately on start
   pollOnce();
-});
+
+  // Then schedule
+  cron.schedule(`*/${intervalMinutes} * * * *`, () => {
+    pollOnce();
+  });
+}
