@@ -12,6 +12,15 @@ interface State {
   [repoKey: string]: string[]; // array of known hashes per repo
 }
 
+async function stateExists(): Promise<boolean> {
+  try {
+    await readFile(STATE_FILE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadState(): Promise<State> {
   try {
     const data = await readFile(STATE_FILE, "utf-8");
@@ -110,8 +119,14 @@ if (isSeed) {
   const intervalMinutes = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
   console.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
 
-  // Run immediately on start
-  pollOnce();
+  // Auto-seed on first run (no state.json = fresh deploy)
+  const hasState = await stateExists();
+  if (!hasState) {
+    console.log("No state.json found — seeding state on first run...");
+    await seedState();
+  } else {
+    pollOnce();
+  }
 
   // Then schedule
   cron.schedule(`*/${intervalMinutes} * * * *`, () => {
