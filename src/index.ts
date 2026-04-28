@@ -51,62 +51,74 @@ async function seedState(): Promise<void> {
   console.log("State seeded. Future runs will only notify NEW postings.");
 }
 
+let polling = false;
+
 async function pollOnce(): Promise<void> {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.error("DISCORD_WEBHOOK_URL not set. Skipping.");
+  if (polling) {
+    console.log("Poll already in progress, skipping.");
     return;
   }
+  polling = true;
 
-  const state = await loadState();
-  let allNewPostings: PostingRow[] = [];
-
-  for (const repoConfig of REPOS) {
-    const repoKey = `${repoConfig.owner}/${repoConfig.repo}`;
-    console.log(`Polling ${repoKey}...`);
-
-    try {
-      const markdown = await fetchReadme(repoConfig);
-      const postings = parseReadme(markdown, repoConfig);
-      console.log(`  Found ${postings.length} total postings.`);
-
-      const knownHashes = new Set(state[repoKey] ?? []);
-      const currentHashes: string[] = [];
-      const newPostings: PostingRow[] = [];
-
-      for (const row of postings) {
-        const hash = hashPosting(row);
-        currentHashes.push(hash);
-        if (!knownHashes.has(hash)) {
-          newPostings.push(row);
-        }
-      }
-
-      console.log(`  ${newPostings.length} new posting(s).`);
-      allNewPostings.push(...newPostings);
-      state[repoKey] = currentHashes;
-    } catch (err) {
-      console.error(`  Error polling ${repoKey}:`, err);
-      // Skip this repo, try again next cycle
-    }
-  }
-
-  if (allNewPostings.length > 0) {
-    console.log(`Sending ${allNewPostings.length} notification(s) to Discord...`);
-    try {
-      await sendDiscordNotifications(allNewPostings, webhookUrl);
-      console.log("Notifications sent.");
-    } catch (err) {
-      console.error("Failed to send Discord notifications:", err);
-      // Don't save state — retry these postings next cycle
+  try {
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.error("DISCORD_WEBHOOK_URL not set. Skipping.");
       return;
     }
-  } else {
-    console.log("No new postings.");
-  }
 
-  await saveState(state);
-  console.log("State saved.\n");
+    const state = await loadState();
+    let allNewPostings: PostingRow[] = [];
+
+    for (const repoConfig of REPOS) {
+      const repoKey = `${repoConfig.owner}/${repoConfig.repo}`;
+      console.log(`Polling ${repoKey}...`);
+
+      try {
+        const markdown = await fetchReadme(repoConfig);
+        const postings = parseReadme(markdown, repoConfig);
+        console.log(`  Found ${postings.length} total postings.`);
+
+        const knownHashes = new Set(state[repoKey] ?? []);
+        const currentHashes: string[] = [];
+        const newPostings: PostingRow[] = [];
+
+        for (const row of postings) {
+          const hash = hashPosting(row);
+          currentHashes.push(hash);
+          if (!knownHashes.has(hash)) {
+            newPostings.push(row);
+          }
+        }
+
+        console.log(`  ${newPostings.length} new posting(s).`);
+        allNewPostings.push(...newPostings);
+        state[repoKey] = currentHashes;
+      } catch (err) {
+        console.error(`  Error polling ${repoKey}:`, err);
+        // Skip this repo, try again next cycle
+      }
+    }
+
+    // Save state before sending — if Discord fails we won't re-notify
+    await saveState(state);
+
+    if (allNewPostings.length > 0) {
+      console.log(`Sending ${allNewPostings.length} notification(s) to Discord...`);
+      try {
+        await sendDiscordNotifications(allNewPostings, webhookUrl);
+        console.log("Notifications sent.");
+      } catch (err) {
+        console.error("Failed to send Discord notifications:", err);
+      }
+    } else {
+      console.log("No new postings.");
+    }
+
+    console.log("State saved.\n");
+  } finally {
+    polling = false;
+  }
 }
 
 // --- Main ---
