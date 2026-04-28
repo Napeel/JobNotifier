@@ -114,9 +114,10 @@ async function pollOnce(): Promise<void> {
 const isSeed = process.argv.includes("--seed");
 
 if (isSeed) {
-  seedState();
+  await seedState();
 } else {
-  const intervalMinutes = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
+  const parsed = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
+  const intervalMinutes = Number.isNaN(parsed) || parsed <= 0 ? 15 : parsed;
   console.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
 
   // Auto-seed on first run (no state.json = fresh deploy)
@@ -125,7 +126,7 @@ if (isSeed) {
     console.log("No state.json found — seeding state on first run...");
     await seedState();
   } else {
-    pollOnce();
+    await pollOnce();
   }
 
   // Then schedule
