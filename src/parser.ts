@@ -79,7 +79,14 @@ export function parseReadme(
 
     const { columns } = config;
 
-    if (cells.length <= Math.max(columns.company, columns.role, columns.location, columns.apply)) {
+    const maxColIndex = Math.max(
+      columns.company,
+      columns.role,
+      columns.location,
+      columns.apply,
+      columns.datePosted ?? -1
+    );
+    if (cells.length <= maxColIndex) {
       continue; // malformed row
     }
 
