@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "test": "tsx --test $(find tests -name '*.test.ts' | tr '\\n' ' ')",
-    "start": "node --import tsx src/index.ts"
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@upstash/redis": "^1.35.3",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
+    "@vercel/node": "^5.3.10",
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.19.0",
