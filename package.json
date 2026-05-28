@@ -7,6 +7,7 @@
     "dev": "node --env-file=.env --import tsx src/index.ts",
     "test": "tsx --test $(find tests -name '*.test.ts' | tr '\\n' ' ')",
     "start": "node --import tsx src/index.ts",
+    "smoke:worker": "tsx scripts/smoke-worker.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },
