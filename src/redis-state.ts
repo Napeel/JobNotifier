@@ -20,6 +20,10 @@ export interface RedisStateClient {
 }
 
 export class RedisStateStore implements StateStore {
+  static fromEnv(): RedisStateStore {
+    return new RedisStateStore(Redis.fromEnv());
+  }
+
   constructor(
     private readonly redis: RedisStateClient = Redis.fromEnv(),
     private readonly stateKey = REDIS_STATE_KEY,
