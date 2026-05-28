@@ -140,13 +140,33 @@ describe("handleWorkerRequest", () => {
   });
 
   it("rejects missing and invalid Authorization before creating state", async () => {
-    const missing = await runHandler({ request: request("GET", "") });
-    const invalid = await runHandler({ request: request("GET", "Bearer wrong-secret") });
+    let createStateCalls = 0;
 
-    assert.equal(missing.response.statusCode, 401);
-    assert.deepEqual(missing.response.body, { ok: false });
-    assert.equal(invalid.response.statusCode, 403);
-    assert.deepEqual(invalid.response.body, { ok: false });
+    async function runUnauthorized(authorization: string): Promise<FakeResponse> {
+      const response = new FakeResponse();
+
+      await handleWorkerRequest({
+        request: request("GET", authorization),
+        response,
+        env,
+        createStateStore: async () => {
+          createStateCalls += 1;
+          throw new Error("state should not be created");
+        },
+        logger: silentLogger,
+      });
+
+      return response;
+    }
+
+    const missing = await runUnauthorized("");
+    const invalid = await runUnauthorized("Bearer wrong-secret");
+
+    assert.equal(missing.statusCode, 401);
+    assert.deepEqual(missing.body, { ok: false });
+    assert.equal(invalid.statusCode, 403);
+    assert.deepEqual(invalid.body, { ok: false });
+    assert.equal(createStateCalls, 0);
   });
 
   it("names missing Redis configuration keys without exposing values", async () => {

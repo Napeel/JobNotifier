@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { pollOnce, seedState } from "../src/notifier.ts";
 import type { NotifierLogger } from "../src/notifier.ts";
+import { fetchReadme } from "../src/poller.ts";
 import type { LockRelease, State, StateStore } from "../src/state.ts";
 import { hashPosting } from "../src/types.ts";
 import type { PostingRow, RepoConfig } from "../src/types.ts";
@@ -125,6 +126,49 @@ describe("seedState", () => {
     });
     assert.equal(store.saveCalls.length, 1);
     assert.equal(notificationCalls.length, 0);
+  });
+});
+
+describe("fetchReadme", () => {
+  it("omits GitHub authorization without GITHUB_TOKEN and adds it when configured", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalGitHubToken = process.env.GITHUB_TOKEN;
+    const requests: Array<{ url: string; headers: Record<string, string> }> = [];
+
+    globalThis.fetch = (async (url, init) => {
+      requests.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string>,
+      });
+
+      return new Response("readme", { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      delete process.env.GITHUB_TOKEN;
+      assert.equal(await fetchReadme(repoOne), "readme");
+
+      process.env.GITHUB_TOKEN = "github-token";
+      assert.equal(await fetchReadme(repoTwo), "readme");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalGitHubToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = originalGitHubToken;
+      }
+    }
+
+    assert.deepEqual(requests, [
+      {
+        url: "https://raw.githubusercontent.com/owner/repo-one/main/README.md",
+        headers: { Accept: "text/plain" },
+      },
+      {
+        url: "https://raw.githubusercontent.com/owner/repo-two/main/README.md",
+        headers: { Accept: "text/plain", Authorization: "Bearer github-token" },
+      },
+    ]);
   });
 });
 
