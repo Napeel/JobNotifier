@@ -1,148 +1,56 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import cron from "node-cron";
-import { REPOS, hashPosting } from "./types.ts";
-import type { PostingRow } from "./types.ts";
-import { fetchReadme } from "./poller.ts";
-import { parseReadme } from "./parser.ts";
-import { sendDiscordNotifications } from "./discord.ts";
+import { seedState as defaultSeedState, pollOnce as defaultPollOnce } from "./notifier.ts";
+import type { NotifierLogger } from "./notifier.ts";
+import { FileStateStore } from "./state.ts";
+import type { StateStore } from "./state.ts";
 
-const STATE_FILE = new URL("../state.json", import.meta.url).pathname;
-
-interface State {
-  [repoKey: string]: string[]; // array of known hashes per repo
+export interface LocalCliDependencies {
+  argv?: string[];
+  env?: Record<string, string | undefined>;
+  stateStore?: StateStore;
+  schedule?: typeof cron.schedule;
+  seedState?: typeof defaultSeedState;
+  pollOnce?: typeof defaultPollOnce;
+  logger?: NotifierLogger;
 }
 
-async function stateExists(): Promise<boolean> {
-  try {
-    await readFile(STATE_FILE);
-    return true;
-  } catch {
-    return false;
-  }
+function parseIntervalMinutes(value: string | undefined): number {
+  const parsed = parseInt(value ?? "15", 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? 15 : parsed;
 }
 
-async function loadState(): Promise<State> {
-  try {
-    const data = await readFile(STATE_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+export async function runLocalCli(dependencies: LocalCliDependencies = {}): Promise<void> {
+  const argv = dependencies.argv ?? process.argv;
+  const env = dependencies.env ?? process.env;
+  const stateStore = dependencies.stateStore ?? new FileStateStore();
+  const schedule = dependencies.schedule ?? cron.schedule;
+  const seed = dependencies.seedState ?? defaultSeedState;
+  const poll = dependencies.pollOnce ?? defaultPollOnce;
+  const logger = dependencies.logger ?? console;
 
-async function saveState(state: State): Promise<void> {
-  await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
-}
-
-async function seedState(): Promise<void> {
-  console.log("Seeding state (no notifications will be sent)...");
-  const state = await loadState();
-
-  for (const repoConfig of REPOS) {
-    const repoKey = `${repoConfig.owner}/${repoConfig.repo}`;
-    console.log(`Fetching ${repoKey}...`);
-    const markdown = await fetchReadme(repoConfig);
-    const postings = parseReadme(markdown, repoConfig);
-    state[repoKey] = postings.map(hashPosting);
-    console.log(`  ${postings.length} postings hashed.`);
-  }
-
-  await saveState(state);
-  console.log("State seeded. Future runs will only notify NEW postings.");
-}
-
-let polling = false;
-
-async function pollOnce(): Promise<void> {
-  if (polling) {
-    console.log("Poll already in progress, skipping.");
+  if (argv.includes("--seed")) {
+    await seed({ stateStore, logger });
     return;
   }
-  polling = true;
 
-  try {
-    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-    if (!webhookUrl) {
-      console.error("DISCORD_WEBHOOK_URL not set. Skipping.");
-      return;
-    }
+  const intervalMinutes = parseIntervalMinutes(env.POLL_INTERVAL_MINUTES);
+  logger.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
 
-    const state = await loadState();
-    let allNewPostings: PostingRow[] = [];
-
-    for (const repoConfig of REPOS) {
-      const repoKey = `${repoConfig.owner}/${repoConfig.repo}`;
-      console.log(`Polling ${repoKey}...`);
-
-      try {
-        const markdown = await fetchReadme(repoConfig);
-        const postings = parseReadme(markdown, repoConfig);
-        console.log(`  Found ${postings.length} total postings.`);
-
-        const knownHashes = new Set(state[repoKey] ?? []);
-        const currentHashes: string[] = [];
-        const newPostings: PostingRow[] = [];
-
-        for (const row of postings) {
-          const hash = hashPosting(row);
-          currentHashes.push(hash);
-          if (!knownHashes.has(hash)) {
-            newPostings.push(row);
-          }
-        }
-
-        console.log(`  ${newPostings.length} new posting(s).`);
-        allNewPostings.push(...newPostings);
-        state[repoKey] = currentHashes;
-      } catch (err) {
-        console.error(`  Error polling ${repoKey}:`, err);
-        // Skip this repo, try again next cycle
-      }
-    }
-
-    // Save state before sending — if Discord fails we won't re-notify
-    await saveState(state);
-
-    if (allNewPostings.length > 0) {
-      console.log(`Sending ${allNewPostings.length} notification(s) to Discord...`);
-      try {
-        await sendDiscordNotifications(allNewPostings, webhookUrl);
-        console.log("Notifications sent.");
-      } catch (err) {
-        console.error("Failed to send Discord notifications:", err);
-      }
-    } else {
-      console.log("No new postings.");
-    }
-
-    console.log("State saved.\n");
-  } finally {
-    polling = false;
+  if (!(await stateStore.isInitialized())) {
+    logger.log("No state.json found — seeding state on first run...");
+    await seed({ stateStore, logger });
+  } else {
+    await poll({ stateStore, webhookUrl: env.DISCORD_WEBHOOK_URL, logger });
   }
+
+  schedule(`*/${intervalMinutes} * * * *`, () => {
+    void poll({ stateStore, webhookUrl: env.DISCORD_WEBHOOK_URL, logger });
+  });
 }
 
-// --- Main ---
+const isMain = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
 
-const isSeed = process.argv.includes("--seed");
-
-if (isSeed) {
-  await seedState();
-} else {
-  const parsed = parseInt(process.env.POLL_INTERVAL_MINUTES ?? "15", 10);
-  const intervalMinutes = Number.isNaN(parsed) || parsed <= 0 ? 15 : parsed;
-  console.log(`Internship Job Notifier starting. Polling every ${intervalMinutes} minutes.`);
-
-  // Auto-seed on first run (no state.json = fresh deploy)
-  const hasState = await stateExists();
-  if (!hasState) {
-    console.log("No state.json found — seeding state on first run...");
-    await seedState();
-  } else {
-    await pollOnce();
-  }
-
-  // Then schedule
-  cron.schedule(`*/${intervalMinutes} * * * *`, () => {
-    pollOnce();
-  });
+if (isMain) {
+  await runLocalCli();
 }
